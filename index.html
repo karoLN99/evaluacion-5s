@@ -9,6 +9,11 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="styles.css">
+  <script>
+    // modo claro por defecto; cada persona puede cambiarlo y se recuerda en su dispositivo
+    try { document.documentElement.dataset.theme = localStorage.getItem('5s_tema') === 'dark' ? 'dark' : 'light'; }
+    catch (e) { document.documentElement.dataset.theme = 'light'; }
+  </script>
 </head>
 <body>
   <header class="site-head" id="siteHead">
@@ -27,6 +32,7 @@
       </a>
       <div class="topbar-right">
         <span class="semana-actual" id="semanaActual"></span>
+        <button class="btn btn-tema" type="button" id="btnTema"></button>
         <a class="btn btn-primary" href="#/nueva" id="btnNueva">+ Nueva evaluación</a>
       </div>
     </div>
@@ -52,6 +58,7 @@
   </div>
 
   <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  <div id="reporte" aria-hidden="true"></div>
 
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.49.4/dist/umd/supabase.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
