@@ -561,8 +561,7 @@
       <div class="sticky-foot">
         <div class="live">
           <span class="muted">Respondidas <strong id="lvResp" class="num">0/0</strong></span>
-          <span class="muted">Calificación <strong id="lvPct" class="num">—</strong></span>
-          <span id="lvRes" class="resultado"></span>
+          <span class="muted">La calificación se muestra al guardar</span>
         </div>
         <div style="display:flex;gap:8px">
           <a class="btn" href="${areaSel ? '#/area/' + areaSel : '#/resumen'}">Cancelar</a>
@@ -633,18 +632,12 @@
 
     function actualizar() {
       const { rows, respuestas } = leer();
+      // solo avance: la calificación se muestra hasta guardar
       $('#lvResp').textContent = `${respuestas.length}/${rows.length}`;
-      const sum = respuestas.reduce((s, r) => s + r.c, 0);
-      const pct = respuestas.length ? (sum / (rows.length * 5)) * 100 : null;
-      $('#lvPct').textContent = pct == null ? '—' : `${fmtPct(pct)}%`;
-      $('#lvPct').className = `num tier ${pct == null ? '' : cls(pct)}`;
-      const res = $('#lvRes');
-      if (rows.length && respuestas.length === rows.length) { res.textContent = resultadoTxt(pct); res.className = `resultado ${resCls(pct)}`; } else { res.textContent = ''; }
       ESES.forEach((s) => {
         const el = $(`[data-sub="${s.n}"]`); if (!el) return;
         const rs = $$(`.q-row[data-s="${s.n}"]`);
-        const vals = rs.map((r) => $('input[type=radio]:checked', r)).filter(Boolean).map((i) => Number(i.value));
-        el.textContent = `${vals.reduce((a, b) => a + b, 0)} / ${rs.length * 5}`;
+        el.textContent = `${rs.filter((r) => $('input[type=radio]:checked', r)).length} de ${rs.length} respondidas`;
       });
     }
 
