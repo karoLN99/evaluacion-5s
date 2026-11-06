@@ -334,6 +334,47 @@ tr.selected td { background: var(--brand-soft); }
   .kpi .k-value { font-size: 22px; }
 }
 
+/* ---------- ventana de resultado al guardar ---------- */
+.dlg-resultado {
+  width: min(520px, calc(100vw - 24px)); max-height: calc(100dvh - 24px); padding: 0;
+  border: 1px solid var(--border); border-radius: 14px; background: var(--surface); color: var(--text);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, .25); overflow: auto;
+}
+.dlg-resultado::backdrop { background: rgba(20, 22, 14, .55); }
+.dlg-head { padding: 16px 20px 12px; border-top: 6px solid var(--ok-bar); border-bottom: 1px solid var(--border); }
+.dlg-head.nosat { border-top-color: var(--bad-bar); }
+.dlg-ok { font-size: 13px; font-weight: 600; color: var(--brand); }
+.dlg-head h2 { font-size: 19px; margin-top: 2px; outline: none; }
+.dlg-sub { color: var(--muted); font-size: 13px; }
+.dlg-body { padding: 16px 20px; display: grid; gap: 16px; }
+.dlg-score { text-align: center; display: grid; gap: 4px; justify-items: center; }
+.dlg-pct { font-size: 46px; font-weight: 700; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.dlg-res { font-size: 15px; padding: 4px 14px; }
+.dlg-res.sat { background: var(--ok-soft); color: var(--ok); border-radius: 999px; }
+.dlg-res.nosat { background: var(--bad-soft); color: var(--bad); border-radius: 999px; }
+.dlg-delta { font-size: 13px; }
+.dlg-eses { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.dlg-eses > div { border: 1px solid var(--border); border-radius: 8px; padding: 6px 4px; display: grid; gap: 4px; justify-items: center; text-align: center; }
+.dlg-eses span { font-size: 11px; font-weight: 700; line-height: 1.2; }
+.dlg-eses small { display: block; font-weight: 400; color: var(--muted); }
+.dlg-eses .pill { min-width: 0; }
+.dlg-eses p { grid-column: 1 / -1; margin: 0; font-size: 12px; text-align: center; }
+.dlg-mejoras h3 { margin-bottom: 6px; }
+.dlg-mejoras ul { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.dlg-mejoras li { display: flex; gap: 8px; align-items: flex-start; font-size: 13px; }
+.dlg-mejoras .score { flex: none; width: 24px; height: 24px; font-size: 12px; }
+.dlg-mejoras p { margin: 6px 0 0; font-size: 12px; }
+.dlg-foot { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; padding: 12px 20px 16px; border-top: 1px solid var(--border); }
+.dlg-mes-info { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.dlg-mes-info > div { border: 1px solid var(--border); border-radius: 8px; padding: 8px; text-align: center; display: grid; }
+.dlg-mes-info b { font-size: 20px; font-variant-numeric: tabular-nums; }
+.dlg-mes-info span { color: var(--muted); font-size: 12px; }
+@media (max-width: 480px) {
+  .dlg-eses { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .dlg-foot .btn { flex: 1 1 auto; }
+  .dlg-foot .btn-primary { flex-basis: 100%; order: -1; }
+}
+
 /* ---------- reporte PDF (solo al imprimir; colores fijos del tema claro) ---------- */
 #reporte { display: none; }
 @media print {
@@ -393,6 +434,14 @@ tr.selected td { background: var(--brand-soft); }
 #reporte .rp-ley i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin: 0 3px 0 8px; }
 #reporte .rp-ley i.ok { background: #2f8f45; } #reporte .rp-ley i.mid { background: #f9b915; } #reporte .rp-ley i.bad { background: #f5361a; }
 #reporte .rp-mejoras { break-inside: avoid; }
+#reporte .rp-kpis.rp-kpis5 { grid-template-columns: repeat(5, 1fr); }
+#reporte .rp-aviso { color: #d12d12; margin: 0 0 8px; }
+#reporte .rp-h3 { font-size: 11px; color: #00602a; margin: 10px 0 4px; }
+#reporte .rp-auditores { width: auto; min-width: 50%; }
+#reporte .rp-nowrap, #reporte .rp-res { white-space: nowrap; }
+#reporte .rp-mes td:nth-child(2) { width: 30%; }
+#reporte .rp-mes th { font-size: 8.5px; }
+#reporte .rp-fig-media img { width: 70%; }
 #reporte .rp-mejoras ul { margin: 4px 0 0; padding: 0; list-style: none; columns: 2; column-gap: 14px; }
 #reporte .rp-mejoras li { break-inside: avoid; margin-bottom: 3px; }
 #reporte .rp-mejoras em { color: #66684f; font-size: 8.5px; }

@@ -353,6 +353,7 @@
           <button class="btn" id="btnXlsx">Descargar Excel</button>
           <button class="btn" id="btnPdf">Descargar PDF</button>
           <button class="btn" id="btnCsv">CSV</button>
+          <button class="btn btn-primary" id="btnMes">Resumen mensual</button>
         </div>
       </div>
 
@@ -397,6 +398,7 @@
     $('#btnCsv').addEventListener('click', () => exportarCsvGeneral());
     $('#btnXlsx').addEventListener('click', (e) => generar(e.currentTarget, () => excelGeneral(semana, filas)));
     $('#btnPdf').addEventListener('click', (e) => generar(e.currentTarget, () => pdfGeneral(semana, filas)));
+    $('#btnMes').addEventListener('click', abrirResumenMensual);
     $$('tr[data-href]', main).forEach((tr) => tr.addEventListener('click', (e) => { if (!e.target.closest('a')) location.hash = tr.dataset.href; }));
 
     chartBarras($('#chBarras'), filas.map((f) => f.area.nombre), filas.map((f) => (f.ev ? r1(f.ev.calc.pct) : null)), (i) => { location.hash = `#/area/${filas[i].area.id}`; });
@@ -685,14 +687,55 @@
         const obs = $('#fObs').value.trim();
         const nuevo = await guardarEvaluacion({ area_id: area, fecha, auditor, respuestas, observaciones: obs || null });
         store.del(claveBorrador());
-        toast(`Evaluación guardada: ${fmtPct(calcular(nuevo).pct)}%`);
         location.hash = `#/area/${area}/${nuevo.id}`;
+        mostrarResultado(nuevo);
       } catch (err) {
         console.error(err);
         toast('No se pudo guardar. Revisa tu conexión e intenta de nuevo. ' + (err.message || ''), true);
         btn.disabled = false; btn.textContent = 'Guardar evaluación';
       }
     }
+  }
+
+  // ---------------------------------------------------------------- resultado al guardar
+  function mostrarResultado(ev) {
+    const area = state.areaById.get(ev.area_id);
+    const list = state.evalsByArea.get(ev.area_id) || [];
+    const guardada = list.find((e) => e.id === ev.id) || ev;
+    const calc = guardada.calc || calcular(guardada);
+    const prev = list[list.indexOf(guardada) + 1] || null;
+    const mejoras = (guardada.respuestas || []).filter((r) => Number(r.c) <= 3 && state.pregById.has(r.p)).sort((a, b) => a.c - b.c);
+    const dlg = $('#dlgResultado');
+    dlg.innerHTML = `
+      <div class="dlg-head ${resCls(calc.pct)}">
+        <div class="dlg-ok">✓ Evaluación guardada</div>
+        <h2 id="dlgTitulo" tabindex="-1" autofocus>${esc(area ? area.nombre : '')}</h2>
+        <div class="dlg-sub">${fmtFecha(guardada.fecha)} · ${esc(guardada.auditor)}</div>
+      </div>
+      <div class="dlg-body">
+        <div class="dlg-score">
+          <div class="dlg-pct tier ${cls(calc.pct)}">${fmtPct(calc.pct)}%</div>
+          <div class="resultado ${resCls(calc.pct)} dlg-res">${resultadoTxt(calc.pct)}</div>
+          <div class="muted">${calc.sum} de ${calc.max} puntos · Meta: ${META}%</div>
+          ${prev ? `<div class="dlg-delta">${deltaHtml(calc.pct, prev.calc.pct)} <span class="muted">vs. evaluación anterior (${fmtPct(prev.calc.pct)}%)</span></div>` : ''}
+        </div>
+        <div class="dlg-eses">${ESES.map((s, i) => { const x = calc.porS[i]; return x.n ? `
+          <div><span>${s.nombre}<small>${s.es}</small></span><b class="pill ${cls((x.pts / 20) * 100)}">${fmtPct(x.pts)}</b></div>` : ''; }).join('')}
+          <p class="muted">Puntos de cada S, sobre 20</p>
+        </div>
+        ${mejoras.length ? `<div class="dlg-mejoras"><h3>Puntos a mejorar (${mejoras.length})</h3><ul>${mejoras.slice(0, 5).map((r) => `<li><span class="score s${r.c}">${r.c}</span>${esc(state.pregById.get(r.p).texto)}</li>`).join('')}</ul>${mejoras.length > 5 ? `<p class="muted">y ${mejoras.length - 5} más en el detalle.</p>` : ''}</div>` : ''}
+      </div>
+      <div class="dlg-foot">
+        <button class="btn" type="button" data-accion="pdf">Descargar PDF</button>
+        <a class="btn" href="#/nueva" data-accion="nueva">Otra evaluación</a>
+        <button class="btn btn-primary" type="button" data-accion="cerrar">Ver detalle</button>
+      </div>`;
+    dlg.onclick = (e) => {
+      const a = e.target.closest('[data-accion]');
+      if (e.target === dlg || (a && a.dataset.accion !== 'pdf')) dlg.close();
+      if (a && a.dataset.accion === 'pdf' && area) generar(a, () => pdfArea(area, guardada));
+    };
+    if (typeof dlg.showModal === 'function') { dlg.showModal(); dlg.scrollTop = 0; } else toast(`Evaluación guardada: ${fmtPct(calc.pct)}% · ${resultadoTxt(calc.pct)}`);
   }
 
   // ---------------------------------------------------------------- CSV
@@ -1111,6 +1154,218 @@
       </section>
       ${conEval.map((f) => pdfFormato(f.area, f.ev, state.evalsByArea.get(f.area.id))).join('')}`;
     await imprimir(html, `reporte-5s-${semana ? 'semana-' + numSemana(parseFecha(semana)) : 'ultimas'}-${hoy()}`);
+  }
+
+  // ---------- resumen mensual
+  const fmtMes = new Intl.DateTimeFormat('es', { month: 'long', year: 'numeric' });
+  const etiquetaMes = (mes) => { const t = fmtMes.format(parseFecha(mes + '-01')); return t.charAt(0).toUpperCase() + t.slice(1); };
+  const mesAnterior = (mes) => { const [y, m] = mes.split('-').map(Number); return m === 1 ? `${y - 1}-12` : `${y}-${String(m - 1).padStart(2, '0')}`; };
+  const promedio = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+  const mesesConDatos = () => Array.from(new Set(state.evals.map((e) => String(e.fecha).slice(0, 7)))).sort().reverse();
+
+  function datosMes(mes) {
+    const delMes = (e, m) => String(e.fecha).slice(0, 7) === m && state.areaById.has(e.area_id);
+    const evals = state.evals.filter((e) => delMes(e, mes)).sort((a, b) => -cmpEvalDesc(a, b));
+    const previas = state.evals.filter((e) => delMes(e, mesAnterior(mes)));
+    const porArea = state.areas.map((a, i) => {
+      const evs = evals.filter((e) => e.area_id === a.id);
+      const pcts = evs.map((e) => e.calc.pct);
+      return {
+        no: i + 1, area: a, n: evs.length, prom: promedio(pcts),
+        min: pcts.length ? Math.min(...pcts) : null, max: pcts.length ? Math.max(...pcts) : null,
+        ult: evs[evs.length - 1] || null,
+        promPrev: promedio(previas.filter((e) => e.area_id === a.id).map((e) => e.calc.pct))
+      };
+    });
+    const semanas = Array.from(new Set(evals.map((e) => semanaKey(e.fecha)))).sort();
+    // aspectos calificados con 3 o menos, contando en cuántas evaluaciones del mes se repiten
+    const mejoras = new Map();
+    evals.forEach((e) => (e.respuestas || []).forEach((r) => {
+      const p = state.pregById.get(r.p);
+      if (!p || Number(r.c) > 3) return;
+      const m = mejoras.get(p.id) || { p, area: state.areaById.get(e.area_id), veces: 0, suma: 0 };
+      m.veces++; m.suma += Number(r.c);
+      mejoras.set(p.id, m);
+    }));
+    const auditores = new Map();
+    evals.forEach((e) => { const k = e.auditor.trim(); const x = auditores.get(k) || []; x.push(e.calc.pct); auditores.set(k, x); });
+    return {
+      mes, etiqueta: etiquetaMes(mes), evals, porArea,
+      prom: promedio(evals.map((e) => e.calc.pct)),
+      sat: evals.filter((e) => r1(e.calc.pct) >= META).length,
+      evaluadas: porArea.filter((f) => f.n).length,
+      sinEvaluar: porArea.filter((f) => !f.n).map((f) => f.area.nombre),
+      semanas: semanas.map((s) => ({ s, label: `S${numSemana(parseFecha(s))}`, prom: promedio(evals.filter((e) => semanaKey(e.fecha) === s).map((e) => e.calc.pct)), n: evals.filter((e) => semanaKey(e.fecha) === s).length })),
+      mejoras: Array.from(mejoras.values()).map((m) => ({ ...m, nArea: porArea.find((f) => f.area === m.area).n, notaProm: m.suma / m.veces }))
+        .sort((a, b) => b.veces / b.nArea - a.veces / a.nArea || a.notaProm - b.notaProm).slice(0, 15),
+      auditores: Array.from(auditores, ([nombre, pcts]) => ({ nombre, n: pcts.length, prom: promedio(pcts) })).sort((a, b) => b.n - a.n || a.nombre.localeCompare(b.nombre))
+    };
+  }
+
+  const grafMesAreas = (d, w, h) => graficaPng({ labels: d.porArea.map((f) => f.area.nombre), values: d.porArea.map((f) => (f.prom == null ? null : r1(f.prom))), w, h, rotar: true });
+  function grafMesSemanas(d, w, h) {
+    const values = d.semanas.map((x) => r1(x.prom));
+    return graficaPng({ tipo: d.semanas.length > 1 ? 'line' : 'bar', labels: d.semanas.map((x) => x.label), values, w, h, min: minLinea(values) });
+  }
+
+  function abrirResumenMensual() {
+    const meses = mesesConDatos();
+    const dlg = $('#dlgMes');
+    if (!meses.length) { toast('Aún no hay evaluaciones registradas', true); return; }
+    dlg.innerHTML = `
+      <div class="dlg-head"><h2 id="dlgMesTitulo" tabindex="-1" autofocus>Resumen mensual</h2>
+        <div class="dlg-sub">Todas las evaluaciones realizadas en el mes, con promedios por área, gráficas y puntos a mejorar</div></div>
+      <div class="dlg-body">
+        <label class="field">Mes
+          <select id="selMes">${meses.map((m) => `<option value="${m}">${esc(etiquetaMes(m))}</option>`).join('')}</select>
+        </label>
+        <div id="mesInfo" class="dlg-mes-info"></div>
+      </div>
+      <div class="dlg-foot">
+        <button class="btn" type="button" data-accion="cerrar">Cancelar</button>
+        <button class="btn" type="button" data-accion="pdf">Descargar PDF</button>
+        <button class="btn btn-primary" type="button" data-accion="xlsx">Descargar Excel</button>
+      </div>`;
+    const info = () => {
+      const d = datosMes($('#selMes').value);
+      $('#mesInfo').innerHTML = `<div><b>${d.evals.length}</b><span>evaluaciones</span></div>
+        <div><b>${d.evaluadas} / ${state.areas.length}</b><span>áreas evaluadas</span></div>
+        <div><b class="tier ${cls(d.prom)}">${fmtPct(d.prom)}%</b><span>promedio del mes</span></div>`;
+    };
+    $('#selMes').addEventListener('change', info);
+    info();
+    dlg.onclick = (e) => {
+      const a = e.target.closest('[data-accion]');
+      if (e.target === dlg || (a && a.dataset.accion === 'cerrar')) { dlg.close(); return; }
+      if (!a) return;
+      const mes = $('#selMes').value;
+      if (a.dataset.accion === 'xlsx') generar(a, () => excelMes(mes));
+      if (a.dataset.accion === 'pdf') generar(a, async () => { dlg.close(); await pdfMes(mes); });
+    };
+    dlg.showModal();
+  }
+
+  async function excelMes(mes) {
+    const d = datosMes(mes);
+    const wb = await nuevoLibro();
+    const ws = wb.addWorksheet('Resumen del mes', { views: [{ showGridLines: false }] });
+    ws.columns = [6, 34, 13, 12, 12, 12, 16, 21, 14, 3].map((width) => ({ width }));
+    ws.pageSetup = { orientation: 'landscape', fitToPage: true, fitToWidth: 1, fitToHeight: 0, paperSize: 9 };
+    xEncabezado(wb, ws, `Resumen mensual de evaluaciones 5´s · ${d.etiqueta}`, `${CFG.SUBTITULO || ''} · Meta: ${META}% · Generado el ${fmtHoy()}`, bannerLogos(), 9);
+
+    const kpis = [
+      ['Evaluaciones realizadas', d.evals.length],
+      ['Áreas evaluadas', `${d.evaluadas} de ${state.areas.length}`],
+      ['Promedio del mes', d.prom == null ? '—' : r1(d.prom) / 100],
+      ['Evaluaciones satisfactorias', `${d.sat} de ${d.evals.length}`],
+      ['Evaluaciones no satisfactorias', d.evals.length - d.sat]
+    ];
+    kpis.forEach(([k, v], i) => {
+      const a = ws.getCell(6 + i, 2); const b = ws.getCell(6 + i, 3);
+      a.value = k; a.font = { color: { argb: 'FF' + RC.muted } };
+      b.value = v; b.font = { bold: true }; b.alignment = { horizontal: 'left' };
+      if (k === 'Promedio del mes' && d.prom != null) { b.numFmt = '0.0%'; xTono(b, d.prom); }
+    });
+    if (d.sinEvaluar.length) {
+      ws.mergeCells(11, 2, 11, 9);
+      Object.assign(ws.getCell(11, 2), { value: `Áreas sin evaluar en el mes: ${d.sinEvaluar.join(', ')}`, font: { color: { argb: 'FF' + RC.badInk } }, alignment: { wrapText: true, vertical: 'top' } });
+      ws.getRow(11).height = xAlto([[ws.getCell(11, 2).value, 120]]);
+    }
+
+    const r0 = 13;
+    const hr = ws.getRow(r0); hr.values = ['No.', 'Área', 'Evaluaciones', 'Promedio', 'Más baja', 'Más alta', 'Última evaluación', 'Resultado del mes', 'vs. mes anterior']; xCabecera(hr);
+    d.porArea.forEach((f, i) => {
+      const row = ws.getRow(r0 + 1 + i);
+      if (!f.n) { row.values = [f.no, f.area.nombre, 0, null, null, null, null, 'Sin evaluar', null]; } else {
+        const dl = f.promPrev == null ? null : r1(f.prom - f.promPrev);
+        row.values = [f.no, f.area.nombre, f.n, r1(f.prom) / 100, r1(f.min) / 100, r1(f.max) / 100, xFecha(f.ult.fecha), resultadoTxt(f.prom), dl];
+        [4, 5, 6].forEach((c) => { row.getCell(c).numFmt = '0.0%'; });
+        xTono(row.getCell(4), f.prom);
+        row.getCell(7).numFmt = 'dd/mm/yyyy';
+        xTono(row.getCell(8), r1(f.prom) >= META ? VERDE : 0);
+        const dc = row.getCell(9); dc.numFmt = '▲ 0.0;▼ 0.0;= 0.0';
+        dc.font = { bold: true, color: { argb: 'FF' + (dl > 0 ? RC.okInk : dl < 0 ? RC.badInk : RC.muted) } };
+      }
+      row.eachCell({ includeEmpty: true }, (c) => { if (c.col <= 9) { c.border = xBorde; if (c.col !== 2) c.alignment = { horizontal: 'center' }; } });
+      row.height = 18;
+    });
+
+    const tit = (txt, row) => Object.assign(ws.getCell(row, 11), { value: txt, font: { bold: true, size: 12, color: { argb: 'FF' + RC.quali } } });
+    tit('Promedio del mes por área', 6);
+    xImagen(wb, ws, grafMesAreas(d, 1100, 480), 10, 6.6, 760, 332);
+    tit('Promedio por semana del mes', 26);
+    xImagen(wb, ws, grafMesSemanas(d, 1100, 340), 10, 26.6, 760, 235);
+
+    xHistorial(wb.addWorksheet('Evaluaciones del mes'), d.evals, true);
+
+    const wm = wb.addWorksheet('Puntos a mejorar');
+    wm.columns = [{ width: 30 }, { width: 12 }, { width: 70 }, { width: 16 }, { width: 14 }];
+    wm.addRow(['Área', 'S', 'Aspecto', 'Veces con 3 o menos', 'Nota promedio']); xCabecera(wm.getRow(1));
+    d.mejoras.forEach((m) => {
+      const row = wm.addRow([m.area.nombre, ESES[m.p.s - 1].nombre, m.p.texto, `${m.veces} de ${m.nArea}`, r1(m.notaProm)]);
+      row.eachCell((c) => { c.border = xBorde; c.alignment = { wrapText: true, vertical: 'middle', horizontal: c.col >= 4 || c.col === 2 ? 'center' : 'left' }; });
+      const [, soft, ink] = tonoNota(Math.round(m.notaProm));
+      Object.assign(row.getCell(5), { fill: xFill(soft), font: { bold: true, color: { argb: 'FF' + ink } } });
+      row.height = xAlto([[m.p.texto, 70]]);
+    });
+    if (!d.mejoras.length) wm.addRow(['Ningún aspecto se calificó con 3 o menos este mes.']);
+    wm.views = [{ state: 'frozen', ySplit: 1 }];
+
+    const wa = wb.addWorksheet('Auditores');
+    wa.columns = [{ width: 30 }, { width: 14 }, { width: 14 }];
+    wa.addRow(['Auditor', 'Evaluaciones', 'Promedio']); xCabecera(wa.getRow(1));
+    d.auditores.forEach((x) => {
+      const row = wa.addRow([x.nombre, x.n, r1(x.prom) / 100]);
+      row.getCell(3).numFmt = '0.0%';
+      row.eachCell((c) => { c.border = xBorde; if (c.col > 1) c.alignment = { horizontal: 'center' }; });
+    });
+
+    await guardarLibro(wb, `resumen-mensual-5s-${mes}.xlsx`);
+  }
+
+  async function pdfMes(mes) {
+    const d = datosMes(mes);
+    const sub = `${CFG.SUBTITULO || ''} · Meta: ${META}% · Generado el ${fmtHoy()}`;
+    const html = `<section class="rp-pag">
+        ${pdfEncabezado(`Resumen mensual de evaluaciones 5´s · ${d.etiqueta}`, sub)}
+        <div class="rp-kpis rp-kpis5">
+          <div><span>Evaluaciones realizadas</span><b>${d.evals.length}</b></div>
+          <div><span>Áreas evaluadas</span><b>${d.evaluadas} / ${state.areas.length}</b></div>
+          <div><span>Promedio del mes</span><b class="${cls(d.prom)}">${fmtPct(d.prom)}%</b></div>
+          <div><span>Satisfactorias</span><b class="ok">${d.sat}</b></div>
+          <div><span>No satisfactorias</span><b class="${d.evals.length - d.sat ? 'bad' : 'ok'}">${d.evals.length - d.sat}</b></div>
+        </div>
+        ${d.sinEvaluar.length ? `<p class="rp-aviso"><b>Áreas sin evaluar en el mes:</b> ${d.sinEvaluar.map(esc).join(', ')}</p>` : ''}
+        <table class="rp-tabla rp-res-tabla rp-mes">
+          <thead><tr><th class="c">No.</th><th>Área</th><th class="c">Evaluaciones</th><th class="c">Promedio</th><th class="c">Más baja</th><th class="c">Más alta</th><th>Última</th><th>Resultado del mes</th><th class="r">vs. mes anterior</th></tr></thead>
+          <tbody>${d.porArea.map((f) => `<tr><td class="c">${f.no}</td><td><b>${esc(f.area.nombre)}</b></td>
+            ${f.n ? `<td class="c">${f.n}</td><td class="c">${pdfPill(f.prom)}</td><td class="c">${fmtPct(f.min)}%</td><td class="c">${fmtPct(f.max)}%</td><td class="rp-nowrap">${fmtFecha(f.ult.fecha)}</td><td>${pdfRes(f.prom)}</td><td class="r">${pdfDelta(f.prom, f.promPrev)}</td>`
+              : '<td class="c">0</td><td colspan="6" class="rp-muted">Sin evaluar</td>'}</tr>`).join('')}</tbody>
+        </table>
+      </section>
+      <section class="rp-pag">
+        ${pdfEncabezado(`Gráficas y puntos a mejorar · ${d.etiqueta}`, sub)}
+        <figure class="rp-fig"><figcaption>Promedio del mes por área</figcaption><img src="${grafMesAreas(d, 1100, 430)}" alt=""></figure>
+        <figure class="rp-fig rp-fig-media"><figcaption>Promedio por semana</figcaption><img src="${grafMesSemanas(d, 1100, 300)}" alt=""></figure>
+        <h3 class="rp-h3">Puntos a mejorar más repetidos (calificación 3 o menos)</h3>
+        ${d.mejoras.length ? `<table class="rp-tabla"><thead><tr><th>Área</th><th>S</th><th>Aspecto</th><th class="c">Veces</th><th class="c">Nota prom.</th></tr></thead>
+          <tbody>${d.mejoras.map((m) => `<tr><td>${esc(m.area.nombre)}</td><td>${ESES[m.p.s - 1].nombre}</td><td>${esc(m.p.texto)}</td><td class="c">${m.veces} de ${m.nArea}</td>
+            <td class="c"><span class="rp-nota n${m.notaProm >= 3.5 ? 'mid' : 'bad'}">${fmtPct(m.notaProm)}</span></td></tr>`).join('')}</tbody></table>`
+          : '<p class="rp-muted">Ningún aspecto se calificó con 3 o menos este mes.</p>'}
+        <h3 class="rp-h3">Evaluaciones por auditor</h3>
+        <table class="rp-tabla rp-auditores"><thead><tr><th>Auditor</th><th class="c">Evaluaciones</th><th class="c">Promedio</th></tr></thead>
+          <tbody>${d.auditores.map((x) => `<tr><td>${esc(x.nombre)}</td><td class="c">${x.n}</td><td class="c">${pdfPill(x.prom)}</td></tr>`).join('')}</tbody></table>
+      </section>
+      <section class="rp-pag">
+        ${pdfEncabezado(`Evaluaciones realizadas · ${d.etiqueta}`, sub)}
+        <table class="rp-tabla">
+          <thead><tr><th>Fecha</th><th class="c">Sem.</th><th>Área</th><th>Auditor</th>${ESES.map((s) => `<th class="c">${s.nombre}</th>`).join('')}<th class="c">Total</th><th>Resultado</th></tr></thead>
+          <tbody>${d.evals.map((e) => `<tr><td class="rp-nowrap">${fmtFecha(e.fecha)}</td><td class="c">${numSemana(parseFecha(e.fecha))}</td><td>${esc(state.areaById.get(e.area_id).nombre)}</td><td>${esc(e.auditor)}</td>
+            ${e.calc.porS.map((x) => `<td class="c">${fmtPct(x.pts)}</td>`).join('')}<td class="c">${pdfPill(e.calc.pct)}</td><td>${pdfRes(e.calc.pct)}</td></tr>`).join('')}</tbody>
+        </table>
+        <p class="rp-muted">Columnas SEIRI a SHITSUKE: puntos de cada S, sobre 20.</p>
+      </section>`;
+    await imprimir(html, `resumen-mensual-5s-${mes}`);
   }
 
   async function pdfArea(area, ev) {
